@@ -117,7 +117,7 @@ def render_html_fast(
         edge_span = edge_max - edge_min + 1e-10
         edge_norm = (edges - edge_min) / edge_span
         
-        edge_chars = np.array(['|', '\\', '-', '/'])
+        edge_chars = np.array(['|', '\\', '_', '/'])
         dir_char_grid = edge_chars[edge_dirs]
         
         # Override characters where the edge is strong enough

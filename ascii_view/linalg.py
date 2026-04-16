@@ -196,7 +196,7 @@ def sobel_edges(grayscale: np.ndarray, return_dirs: bool = False) -> Union[np.nd
     magnitude : ndarray, shape (H, W)
         Edge magnitude at each pixel.
         If return_dirs is True, returns (magnitude, directions) where
-        directions is an array of indices [0: '|', 1: '\\', 2: '-', 3: '/'].
+        directions is an array of indices [0: '|', 1: '\\', 2: '_', 3: '/'].
     """
     padded  = np.pad(grayscale.astype(np.float64, copy=False), 1, mode='reflect')
     windows = _sliding_windows(padded)          # (H, W, 9) – zero-copy view
@@ -209,7 +209,7 @@ def sobel_edges(grayscale: np.ndarray, return_dirs: bool = False) -> Union[np.nd
     if not return_dirs:
         return magnitude
 
-    # Map angle to 4 direction bins: 0=vertical(|), 1=diagonal-down(\), 2=horizontal(-), 3=diagonal-up(/)
+    # Map angle to 4 direction bins: 0=vertical(|), 1=diagonal-down(\), 2=horizontal(_), 3=diagonal-up(/)
     angle = np.arctan2(gy, gx) % np.pi
     dirs = np.floor((angle + np.pi/8) / (np.pi/4)).astype(int) % 4
 
