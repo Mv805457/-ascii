@@ -2,16 +2,23 @@ import cv2
 import numpy as np
 
 # Use an extended detailed ramp for better visuals
-ASCII_CHARS = " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESwqkP6h9d4VpOGbUAKXHm8RD#$Bg0MNWQ%&@"
+RAMPS = [
+    " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESwqkP6h9d4VpOGbUAKXHm8RD#$Bg0MNWQ%&@", # 0: Detailed
+    " .:-=+*#%@", # 1: Standard
+    " ░▒▓█", # 2: Blocks
+    " 01", # 3: Binary
+    "  _.,-+=*%#@" # 4: Matrix/Terminal
+]
 EDGE_CHARS = ['|', '\\', '_', '/']
 
 # Create mapping dictionary and arrays globally so they run once
-CHAR_MAP = {c: i for i, c in enumerate(ASCII_CHARS)}
-for ec in EDGE_CHARS:
-    if ec not in CHAR_MAP:
-        CHAR_MAP[ec] = len(CHAR_MAP)
+unique_chars = set()
+for r in RAMPS:
+    unique_chars.update(list(r))
+unique_chars.update(EDGE_CHARS)
 
-ALL_CHARS = list(CHAR_MAP.keys())
+ALL_CHARS = list(unique_chars)
+CHAR_MAP = {c: i for i, c in enumerate(ALL_CHARS)}
 
 def create_char_bank(font_scale=0.35, thickness=1, char_w=6, char_h=10):
     """Pre-render character masks to a tensor for extremely fast numpy tiling."""
@@ -34,7 +41,7 @@ def create_char_bank(font_scale=0.35, thickness=1, char_w=6, char_h=10):
 
 CHAR_BANK = create_char_bank()
 
-def render_cv_fast(image, combined, edges=None, edge_dirs=None, chars=ASCII_CHARS):
+def render_cv_fast(image, combined, edges=None, edge_dirs=None, chars=RAMPS[0], use_edges=True):
     height, width = combined.shape
     
     n_chars_ramp = len(chars)
@@ -54,7 +61,7 @@ def render_cv_fast(image, combined, edges=None, edge_dirs=None, chars=ASCII_CHAR
     global_indices = ramp_to_global[base_indices]
 
     # 2. Overwrite with edges if strong enough
-    if edges is not None and edge_dirs is not None:
+    if use_edges and edges is not None and edge_dirs is not None:
         edge_min = float(edges.min())
         edge_max = float(edges.max())
         edge_span = edge_max - edge_min + 1e-10

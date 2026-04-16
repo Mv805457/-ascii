@@ -3,7 +3,7 @@ import numpy as np
 import time
 from ascii_view.image import to_grayscale
 from ascii_view.linalg import svd_compress, project_matrix, sobel_edges, combine_matrices
-from ascii_view.cv_render import render_cv_fast
+from ascii_view.cv_render import render_cv_fast, RAMPS
 
 # Default Configuration Defaults
 DEFAULT_WIDTH = 150
@@ -39,6 +39,8 @@ def main():
     cv2.createTrackbar("Width", "Controls", DEFAULT_WIDTH, 400, noop)
     cv2.createTrackbar("SVD Rank", "Controls", DEFAULT_RANK, 200, noop)
     cv2.createTrackbar("Edge Weight", "Controls", DEFAULT_EDGE_WT, 100, noop)
+    cv2.createTrackbar("Char Set", "Controls", 0, len(RAMPS) - 1, noop)
+    cv2.createTrackbar("Enable Edges", "Controls", 1, 1, noop)
 
     char_ratio = 10.0 / 6.0 
     
@@ -49,10 +51,16 @@ def main():
             print("Failed to grab frame")
             break
             
-        # Read controls
-        current_width = max(40, cv2.getTrackbarPos("Width", "Controls"))
-        current_rank  = max(1, cv2.getTrackbarPos("SVD Rank", "Controls"))
-        current_edge  = cv2.getTrackbarPos("Edge Weight", "Controls") / 100.0
+        # Read controls safely (prevents crash if window is closed)
+        try:
+            current_width = max(40, cv2.getTrackbarPos("Width", "Controls"))
+            current_rank  = max(1, cv2.getTrackbarPos("SVD Rank", "Controls"))
+            current_edge  = cv2.getTrackbarPos("Edge Weight", "Controls") / 100.0
+            char_idx      = cv2.getTrackbarPos("Char Set", "Controls")
+            use_edges     = cv2.getTrackbarPos("Enable Edges", "Controls") == 1
+        except cv2.error:
+            print("Controls window closed, exiting...")
+            break
             
         # 1. Resize for ASCII grid
         orig_h, orig_w, _ = frame.shape
@@ -72,7 +80,10 @@ def main():
         combined = combine_matrices(projected, edges, current_edge)
 
         # 3. Super Fast Rendering (Numpy Vectorized)
-        ascii_img = render_cv_fast(small_frame, combined, edges=edges, edge_dirs=edge_dirs)
+        ascii_img = render_cv_fast(
+            small_frame, combined, edges=edges, edge_dirs=edge_dirs, 
+            chars=RAMPS[char_idx], use_edges=use_edges
+        )
         
         # Show FPS and stats
         fps = 1.0 / (time.time() - t0)
