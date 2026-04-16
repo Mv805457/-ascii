@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import subprocess
 
 import numpy as np
 from flask import Flask, jsonify, render_template, request
@@ -147,6 +148,17 @@ def webcam_frame():
 
     html = _image_array_to_ascii(img_array, width, height, rank, ew)
     return jsonify({"html": html, "cols": width, "rows": height})
+
+
+@app.post("/api/spawn-desktop")
+def spawn_desktop():
+    """Launch the native OpenCV desktop app from the web UI."""
+    try:
+        # Fire and forget
+        subprocess.Popen(["python", "desktop_app.py"])
+        return jsonify({"status": "success"})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 if __name__ == "__main__":

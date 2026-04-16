@@ -1112,81 +1112,32 @@
      Webcam
   ================================================================ */
   async function startWebcam() {
-    // Check for secure context / mediaDevices support
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      const reason = location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'
-        ? 'Camera requires HTTPS or localhost. Open http://127.0.0.1:5000 instead of a network IP.'
-        : 'Your browser does not support camera access.';
-      setCamState('error', reason);
-      toast(reason, 'error');
-      return;
-    }
-
-    setCamState('connecting', 'Requesting camera…');
+    setCamState('connecting', 'Launching Native OpenCV App…');
 
     try {
-      webcamStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        audio: false
-      });
+      const resp = await fetch('/api/spawn-desktop', { method: 'POST' });
+      const data = await resp.json();
+      
+      if (data.error) throw new Error(data.error);
 
-      const video = document.getElementById('webcam-video');
-      video.srcObject = webcamStream;
-
-      // Must explicitly play() after assigning srcObject
-      try { await video.play(); } catch (_) { /* autoplay may have already started it */ }
-
-      // Hide the start overlay, show controls
       document.getElementById('cam-overlay').classList.add('hidden');
-      document.getElementById('btn-stop-cam').style.display  = '';
-      document.getElementById('btn-capture').style.display   = '';
+      setCamState('live', 'Native Desktop App Running!');
+      toast('📷 Desktop App Launched!', 'success');
+      
+      // We don't start the browser live loop because the desktop app handles it
       document.getElementById('live-badge').classList.add('show');
-
-      setCamState('live', 'Live');
-      toast('📷 Camera connected!', 'success');
-      startLiveLoop();
-
+      document.getElementById('btn-stop-cam').style.display  = '';
+      
     } catch (err) {
-      let msg = 'Camera error: ' + err.message;
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Camera permission denied. Click the camera icon in your browser address bar and allow access, then try again.';
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        msg = 'No camera found. Make sure a webcam is connected.';
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        msg = 'Camera is in use by another app. Close other camera apps and try again.';
-      } else if (err.name === 'OverconstrainedError') {
-        msg = 'Camera does not support requested resolution. Trying fallback…';
-        // Retry with no constraints
-        try {
-          webcamStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          const video = document.getElementById('webcam-video');
-          video.srcObject = webcamStream;
-          try { await video.play(); } catch (_) {}
-          document.getElementById('cam-overlay').classList.add('hidden');
-          document.getElementById('btn-stop-cam').style.display = '';
-          document.getElementById('btn-capture').style.display  = '';
-          document.getElementById('live-badge').classList.add('show');
-          setCamState('live', 'Live (fallback mode)');
-          toast('📷 Camera connected (fallback mode)', 'success');
-          startLiveLoop();
-          return;
-        } catch (e2) { msg = 'Camera fallback also failed: ' + e2.message; }
-      }
-      setCamState('error', msg);
-      toast(msg, 'error');
+      setCamState('error', 'Failed to launch desktop app.');
+      toast('Launch error: ' + err.message, 'error');
     }
   }
 
   function stopWebcam() {
-    if (webcamStream) {
-      webcamStream.getTracks().forEach(t => t.stop());
-      webcamStream = null;
-    }
-    stopLiveLoop();
-
-    const video = document.getElementById('webcam-video');
-    video.srcObject = null;
-
+    // We cannot securely kill the external process from here,
+    // so we just reset the UI state. The user must close the native window.
+    toast('Please close the native OpenCV window to stop the camera.', 'info');
     document.getElementById('cam-overlay').classList.remove('hidden');
     document.getElementById('btn-stop-cam').style.display  = 'none';
     document.getElementById('btn-capture').style.display   = 'none';
