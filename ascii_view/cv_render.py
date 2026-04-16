@@ -20,11 +20,11 @@ unique_chars.update(EDGE_CHARS)
 ALL_CHARS = list(unique_chars)
 CHAR_MAP = {c: i for i, c in enumerate(ALL_CHARS)}
 
-def create_char_bank(font_scale=0.35, thickness=1, char_w=6, char_h=10):
+def create_char_bank(char_list, font_scale=0.35, thickness=1, char_w=6, char_h=10):
     """Pre-render character masks to a tensor for extremely fast numpy tiling."""
-    bank = np.zeros((len(ALL_CHARS), char_h, char_w, 3), dtype=np.float32)
+    bank = np.zeros((len(char_list), char_h, char_w, 3), dtype=np.float32)
     
-    for i, c in enumerate(ALL_CHARS):
+    for i, c in enumerate(char_list):
         img = np.zeros((char_h, char_w, 3), dtype=np.uint8)
         (text_w, text_h), baseline = cv2.getTextSize(c, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
         
@@ -39,9 +39,21 @@ def create_char_bank(font_scale=0.35, thickness=1, char_w=6, char_h=10):
         
     return bank
 
-CHAR_BANK = create_char_bank()
+CHAR_BANK = create_char_bank(ALL_CHARS)
 
-def render_cv_fast(image, combined, edges=None, edge_dirs=None, chars=RAMPS[0], use_edges=True):
+def ensure_custom_chars(custom_str):
+    """Dynamically add unrendered characters to the master bank."""
+    global ALL_CHARS, CHAR_MAP, CHAR_BANK
+    missing = [c for c in custom_str if c not in CHAR_MAP]
+    if missing:
+        start_idx = len(ALL_CHARS)
+        ALL_CHARS.extend(missing)
+        for i, c in enumerate(missing):
+            CHAR_MAP[c] = start_idx + i
+        new_bank = create_char_bank(missing)
+        CHAR_BANK = np.concatenate([CHAR_BANK, new_bank], axis=0)
+
+def render_cv_fast(image, combined, edges=None, edge_dirs=None, chars=RAMPS[0], use_edges=True, filter_idx=0):
     height, width = combined.shape
     
     n_chars_ramp = len(chars)
@@ -83,6 +95,17 @@ def render_cv_fast(image, combined, edges=None, edge_dirs=None, chars=RAMPS[0], 
     # We expand it to (H, W, 1, 1, 3) so it broadcasts across char_h, char_w
     rgb = np.clip(image, 0, 255).astype(np.float32)
     rgb_expanded = rgb[:, :, np.newaxis, np.newaxis, :]
+    
+    # Apply Filters (OpenCV uses BGR channel order)
+    if filter_idx == 1:   # Red
+        rgb_expanded[:, :, :, :, 0] = 0   # B
+        rgb_expanded[:, :, :, :, 1] = 0   # G
+    elif filter_idx == 2: # Orange
+        rgb_expanded[:, :, :, :, 0] = 0   # B
+        rgb_expanded[:, :, :, :, 1] *= 0.5 # G
+    elif filter_idx == 3: # Green
+        rgb_expanded[:, :, :, :, 0] = 0   # B
+        rgb_expanded[:, :, :, :, 2] = 0   # R
     
     # Multiply color * text mask
     colored_blocks = block_grid * rgb_expanded
