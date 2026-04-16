@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASCIIfy — Linear Algebra ASCII Art Engine</title>
+  <meta name="description" content="Real-time ASCII art generator powered by SVD compression and Sobel edge detection. Upload images or use your webcam." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─── Design tokens ──────────────────────────────────────────── */
+    :root {
+      --bg:          #080b12;
+      --surface:     #0d1220;
+      --surface2:    #121929;
+      --border:      rgba(80, 160, 255, 0.12);
+      --border-glow: rgba(80, 160, 255, 0.35);
+      --accent:      #3b82f6;
+      --accent2:     #8b5cf6;
+      --accent3:     #06b6d4;
+      --green:       #22c55e;
+      --red:         #f43f5e;
+      --yellow:      #f59e0b;
+      --text:        #e2e8f0;
+      --text-dim:    #64748b;
+      --text-muted:  #334155;
+      --radius:      12px;
+      --radius-lg:   20px;
+      --glow-blue:   0 0 40px rgba(59,130,246,0.25);
+      --glow-purple: 0 0 40px rgba(139,92,246,0.2);
+      --transition:  0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Ambient glow blobs */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.15;
+      pointer-events: none;
+      z-index: 0;
+      animation: blobDrift 18s ease-in-out infinite alternate;
+    }
+    .blob-1 { width: 600px; height: 600px; background: #3b82f6; top: -200px; left: -150px; animation-delay: 0s; }
+    .blob-2 { width: 500px; height: 500px; background: #8b5cf6; bottom: -200px; right: -100px; animation-delay: -6s; }
+    .blob-3 { width: 400px; height: 400px; background: #06b6d4; top: 40%; left: 40%; animation-delay: -12s; }
+
+    @keyframes blobDrift {
+      from { transform: translate(0, 0) scale(1); }
+      to   { transform: translate(40px, 30px) scale(1.08); }
+    }
+
+    /* ─── Layout ─────────────────────────────────────────────────── */
+    .wrap {
+      position: relative;
+      z-index: 1;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ─── Header ─────────────────────────────────────────────────── */
+    header {
+      text-align: center;
+      padding: 64px 0 48px;
+      position: relative;
+    }
+
+    .logo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(59,130,246,0.1);
+      border: 1px solid var(--border-glow);
+      border-radius: 999px;
+      padding: 6px 18px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent3);
+      margin-bottom: 24px;
+      animation: fadeDown 0.6s ease both;
+    }
+
+    .logo-badge::before {
+      content: '◈';
+      font-size: 14px;
+    }
+
+    h1 {
+      font-size: clamp(2.5rem, 6vw, 4.5rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.08;
+      animation: fadeDown 0.7s ease 0.1s both;
+    }
+
+    h1 .grad {
+      background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 50%, #22d3ee 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      margin-top: 16px;
+      font-size: 1.05rem;
+      color: var(--text-dim);
+      font-weight: 400;
+      max-width: 560px;
+      margin-inline: auto;
+      line-height: 1.6;
+      animation: fadeDown 0.7s ease 0.2s both;
+    }
+
+    /* ─── Pill mode switcher ─────────────────────────────────────── */
+    .mode-switcher {
+      display: flex;
+      justify-content: center;
+      margin: 40px 0 36px;
+      animation: fadeDown 0.7s ease 0.3s both;
+    }
+
+    .mode-pills {
+      display: flex;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px;
+      gap: 2px;
+    }
+
+    .mode-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 28px;
+      border-radius: 999px;
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all var(--transition);
+      white-space: nowrap;
+    }
+
+    .mode-pill.active {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(59,130,246,0.4);
+    }
+
+    .mode-pill:not(.active):hover {
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+    }
+
+    .mode-icon { font-size: 16px; }
+
+    /* ─── Cards / panels ─────────────────────────────────────────── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+
+    .panel:hover {
+      border-color: var(--border-glow);
+      box-shadow: var(--glow-blue);
+    }
+
+    .panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-title::before {
+      content: '';
+      display: inline-block;
+      width: 3px;
+      height: 16px;
+      border-radius: 2px;
+      background: linear-gradient(var(--accent), var(--accent2));
+    }
+
+    /* ─── Main two-column grid ───────────────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ─── Left sidebar ───────────────────────────────────────────── */
+    .sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+    /* ─── Drop zone ──────────────────────────────────────────────── */
+    .drop-zone {
+      border: 2px dashed var(--border-glow);
+      border-radius: var(--radius);
+      padding: 36px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--transition);
+      background: rgba(59,130,246,0.03);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(59,130,246,0.08);
+      box-shadow: 0 0 30px rgba(59,130,246,0.15);
+    }
+
+    .drop-icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+      display: block;
+      filter: drop-shadow(0 0 12px rgba(59,130,246,0.5));
+      animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-6px); }
+    }
+
+    .drop-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .drop-sub {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    /* hidden file input */
+    #file-input { display: none; }
+
+    /* Preview thumbnail */
+    #preview-wrap {
+      display: none;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      position: relative;
+    }
+
+    #preview-img {
+      width: 100%;
+      height: 180px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .preview-badge {
+      position: absolute;
+      top: 8px; right: 8px;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(6px);
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 11px;
+      color: var(--accent3);
+      font-weight: 600;
+    }
+
+    /* ─── Webcam ─────────────────────────────────────────────────── */
+    #webcam-panel { display: none; }
+
+    .webcam-video-wrap {
+      position: relative;
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: #000;
+      aspect-ratio: 4/3;
+    }
+
+    #webcam-video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    /* Big overlay shown when camera is off */
+    .cam-start-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: rgba(8,11,18,0.9);
+      cursor: pointer;
+      transition: background var(--transition);
+    }
+
+    .cam-start-overlay:hover { background: rgba(8,11,18,0.75); }
+    .cam-start-overlay.hidden { display: none; }
+
+    .cam-big-icon {
+      font-size: 48px;
+      filter: drop-shadow(0 0 20px rgba(59,130,246,0.6));
+      animation: float 2.5s ease-in-out infinite;
+    }
+
+    .cam-start-label {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .cam-start-hint {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .webcam-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 8px;
+    }
+
+    .webcam-status .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: background 0.3s;
+    }
+
+    .webcam-status .dot.live  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.5s infinite; }
+    .webcam-status .dot.error { background: var(--red); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    .webcam-controls {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    /* ─── Sliders ────────────────────────────────────────────────── */
+    .slider-group { display: flex; flex-direction: column; gap: 14px; }
+
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .slider-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent3);
+      background: rgba(6,182,212,0.1);
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 99px;
+      background: var(--surface2);
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      box-shadow: 0 0 10px rgba(59,130,246,0.5);
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.3);
+    }
+
+    /* ─── Buttons ────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: var(--radius);
+      border: none;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--transition);
+      white-space: nowrap;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(59,130,246,0.4);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 30px rgba(59,130,246,0.5);
+    }
+
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-primary:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255,255,255,0.1);
+      border-color: var(--border-glow);
+    }
+
+    .btn-green {
+      background: linear-gradient(135deg, #16a34a, #22c55e);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(34,197,94,0.35);
+    }
+
+    .btn-green:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 30px rgba(34,197,94,0.45);
+    }
+
+    .btn-red {
+      background: linear-gradient(135deg, #be123c, #f43f5e);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(244,63,94,0.35);
+    }
+
+    .btn-sm { padding: 8px 16px; font-size: 13px; border-radius: 8px; }
+
+    .btn-full { width: 100%; }
+
+    /* Spinner */
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Output area ────────────────────────────────────────────── */
+    .output-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      display: flex;
+      flex-direction: column;
+      min-height: 600px;
+      overflow: hidden;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+
+    .output-panel:hover {
+      border-color: var(--border-glow);
+      box-shadow: var(--glow-purple);
+    }
+
+    .output-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+      flex-shrink: 0;
+    }
+
+    .output-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .meta-chip {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 11px;
+    }
+
+    .meta-chip.active {
+      background: rgba(59,130,246,0.15);
+      border-color: rgba(59,130,246,0.4);
+      color: var(--accent3);
+    }
+
+    .output-actions { display: flex; gap: 8px; }
+
+    .output-scroll {
+      flex: 1;
+      overflow: auto;
+      padding: 0;
+      background: #050709;
+      position: relative;
+    }
+
+    #ascii-output {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7.5px;
+      line-height: 1.15;
+      letter-spacing: 0.01em;
+      white-space: pre;
+      padding: 16px;
+      display: inline-block;
+      min-width: 100%;
+    }
+
+    /* Empty state */
+    .empty-state {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      gap: 12px;
+      pointer-events: none;
+    }
+
+    .empty-art {
+      font-size: 60px;
+      opacity: 0.15;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1;
+      animation: glitch 4s ease infinite;
+    }
+
+    @keyframes glitch {
+      0%, 89%, 92%, 100% { opacity: 0.15; transform: none; }
+      90%  { opacity: 0.25; transform: translateX(-2px); }
+      91%  { opacity: 0.25; transform: translateX(2px); }
+    }
+
+    .empty-label {
+      font-size: 14px;
+      font-weight: 500;
+      opacity: 0.4;
+    }
+
+    /* ─── Stats bar ──────────────────────────────────────────────── */
+    .stats-bar {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent3);
+    }
+
+    /* ─── Webcam live indicator ──────────────────────────────────── */
+    .live-badge {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      background: rgba(244,63,94,0.15);
+      border: 1px solid rgba(244,63,94,0.4);
+      border-radius: 999px;
+      padding: 4px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--red);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .live-badge.show { display: flex; }
+
+    .live-badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--red);
+      animation: pulse 1s infinite;
+    }
+
+    /* ─── Toast notifications ────────────────────────────────────── */
+    .toast-container {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      font-size: 13px;
+      font-weight: 500;
+      min-width: 240px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: toastIn 0.3s ease;
+    }
+
+    .toast.success { border-color: rgba(34,197,94,0.4); }
+    .toast.error   { border-color: rgba(244,63,94,0.4); }
+    .toast.info    { border-color: var(--border-glow); }
+
+    @keyframes toastIn  { from { opacity: 0; transform: translateX(20px); } }
+    @keyframes toastOut { to   { opacity: 0; transform: translateX(20px); } }
+
+    /* ─── Animations ─────────────────────────────────────────────── */
+    @keyframes fadeDown {
+      from { opacity: 0; transform: translateY(-16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .fade-in {
+      animation: fadeIn 0.4s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    /* ─── Processing overlay ─────────────────────────────────────── */
+    .processing-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(5,7,9,0.85);
+      backdrop-filter: blur(4px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 10;
+    }
+
+    .processing-overlay.show { display: flex; }
+
+    .processing-ring {
+      width: 56px; height: 56px;
+      border: 3px solid rgba(59,130,246,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .processing-label {
+      font-size: 14px;
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    /* ─── Footer ─────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 40px 0 20px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    footer a { color: var(--text-dim); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<!-- Ambient blobs -->
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+<div class="blob blob-3"></div>
+
+<!-- Toast notification container -->
+<div class="toast-container" id="toast-container"></div>
+
+<div class="wrap">
+  <!-- ─── Header ─────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo-badge">SVD · Sobel · Linear Algebra</div>
+    <h1><span class="grad">ASCIIfy</span></h1>
+    <p class="subtitle">
+      Real-time ASCII art powered by Singular Value Decomposition and Sobel edge detection.
+      Feed it an image or your webcam feed — watch maths become art.
+    </p>
+  </header>
+
+  <!-- ─── Mode switcher ──────────────────────────────────────────── -->
+  <div class="mode-switcher">
+    <div class="mode-pills">
+      <button class="mode-pill active" id="pill-image" onclick="switchMode('image')">
+        <span class="mode-icon">🖼</span> Upload Image
+      </button>
+      <button class="mode-pill" id="pill-webcam" onclick="switchMode('webcam')">
+        <span class="mode-icon">📷</span> Live Webcam
+      </button>
+    </div>
+  </div>
+
+  <!-- ─── Main grid ──────────────────────────────────────────────── -->
+  <div class="main-grid">
+
+    <!-- ── Sidebar ────────────────────────────────────────────────── -->
+    <aside class="sidebar">
+
+      <!-- Image upload panel -->
+      <div class="panel" id="image-panel">
+        <div class="panel-title">Source Image</div>
+
+        <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+          <span class="drop-icon">⬆</span>
+          <div class="drop-title">Drop image here</div>
+          <div class="drop-sub">or click to browse · JPG, PNG, WEBP, GIF</div>
+        </div>
+        <input type="file" id="file-input" accept="image/*" />
+
+        <div id="preview-wrap" style="margin-top:12px;">
+          <img id="preview-img" src="" alt="Preview" />
+          <div class="preview-badge" id="preview-badge">Ready</div>
+        </div>
+      </div>
+
+      <!-- Webcam panel -->
+      <div class="panel" id="webcam-panel">
+        <div class="panel-title">Live Camera</div>
+
+        <div class="webcam-video-wrap">
+          <video id="webcam-video" autoplay playsinline muted></video>
+
+          <!-- Click anywhere on this overlay to start camera -->
+          <div class="cam-start-overlay" id="cam-overlay" onclick="startWebcam()">
+            <div class="cam-big-icon">📷</div>
+            <div class="cam-start-label">Click to Start Camera</div>
+            <div class="cam-start-hint">Browser will ask for permission</div>
+          </div>
+        </div>
+
+        <div class="webcam-status" style="margin-top:10px;">
+          <div class="dot" id="cam-dot"></div>
+          <span id="cam-status-text">Camera off — click above to start</span>
+        </div>
+
+        <div class="webcam-controls">
+          <button class="btn btn-secondary btn-sm" id="btn-stop-cam" onclick="stopWebcam()" style="display:none">⏹ Stop Camera</button>
+          <button class="btn btn-green btn-sm" id="btn-capture" onclick="captureFrame()" style="display:none">📸 Capture &amp; Save</button>
+        </div>
+      </div>
+
+      <!-- Settings panel -->
+      <div class="panel">
+        <div class="panel-title">Parameters</div>
+        <div class="slider-group">
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Output Width</span>
+              <span class="slider-value" id="val-width">220</span>
+            </div>
+            <input type="range" id="sl-width" min="60" max="400" value="220" step="10"
+                   oninput="document.getElementById('val-width').textContent=this.value" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Output Height</span>
+              <span class="slider-value" id="val-height">80</span>
+            </div>
+            <input type="range" id="sl-height" min="20" max="180" value="80" step="5"
+                   oninput="document.getElementById('val-height').textContent=this.value" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>SVD Rank</span>
+              <span class="slider-value" id="val-rank">50</span>
+            </div>
+            <input type="range" id="sl-rank" min="1" max="200" value="50" step="1"
+                   oninput="document.getElementById('val-rank').textContent=this.value" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Edge Weight</span>
+              <span class="slider-value" id="val-ew">0.40</span>
+            </div>
+            <input type="range" id="sl-ew" min="0" max="1" value="0.4" step="0.05"
+                   oninput="document.getElementById('val-ew').textContent=parseFloat(this.value).toFixed(2)" />
+          </div>
+
+          <!-- Webcam refresh rate -->
+          <div class="slider-row" id="fps-row" style="display:none">
+            <div class="slider-label">
+              <span>Live FPS</span>
+              <span class="slider-value" id="val-fps">4</span>
+            </div>
+            <input type="range" id="sl-fps" min="1" max="12" value="4" step="1"
+                   oninput="document.getElementById('val-fps').textContent=this.value; updateFps()" />
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div id="image-actions">
+        <button class="btn btn-primary btn-full" id="btn-render" onclick="renderImage()" disabled>
+          <div class="spinner" id="spinner-render"></div>
+          <span id="btn-render-label">⚡ Render ASCII</span>
+        </button>
+      </div>
+
+    </aside>
+
+    <!-- ── Output area ─────────────────────────────────────────────── -->
+    <div class="output-panel">
+
+      <div class="output-toolbar">
+        <div class="output-meta">
+          <span>ASCIIfy</span>
+          <span class="meta-chip" id="chip-mode">Image mode</span>
+          <span class="meta-chip active" id="chip-dims">— × —</span>
+          <div class="live-badge" id="live-badge">
+            <div class="dot"></div>LIVE
+          </div>
+        </div>
+        <div class="output-actions">
+          <button class="btn btn-secondary btn-sm" id="btn-download"
+                  onclick="downloadAscii()" title="Download as HTML" disabled>
+            ⬇ Download
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats bar (hidden until first render) -->
+      <div class="stats-bar" id="stats-bar" style="display:none">
+        <div class="stat">
+          <div class="stat-label">Characters</div>
+          <div class="stat-value" id="stat-chars">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Grid</div>
+          <div class="stat-value" id="stat-grid">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Mode</div>
+          <div class="stat-value" id="stat-mode">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Render time</div>
+          <div class="stat-value" id="stat-time">—</div>
+        </div>
+      </div>
+
+      <!-- Output scroll area -->
+      <div class="output-scroll" id="output-scroll">
+
+        <!-- Empty state -->
+        <div class="empty-state" id="empty-state">
+          <div class="empty-art">@@@<br>#%@<br>*#%</div>
+          <div class="empty-label">Upload an image or start your webcam</div>
+        </div>
+
+        <!-- Processing overlay -->
+        <div class="processing-overlay" id="processing-overlay">
+          <div class="processing-ring"></div>
+          <div class="processing-label">Running linalg pipeline…</div>
+        </div>
+
+        <!-- ASCII output injected here -->
+        <div id="ascii-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <p>ASCIIfy · SVD compression + Sobel edge detection · built with the linear algebra pipeline</p>
+  </footer>
+</div>
+
+
+<!-- Canvas for webcam capture (hidden) -->
+<canvas id="capture-canvas" style="display:none"></canvas>
+
+<script>
+  /* ================================================================
+     State
+  ================================================================ */
+  let currentMode   = 'image';
+  let selectedFile  = null;
+  let webcamStream  = null;
+  let liveInterval  = null;
+  let lastHtml      = '';
+  let lastCols      = 0;
+  let lastRows      = 0;
+  let liveFps       = 4;
+
+  /* ================================================================
+     Mode switching
+  ================================================================ */
+  function switchMode(mode) {
+    currentMode = mode;
+    document.getElementById('pill-image').classList.toggle('active', mode === 'image');
+    document.getElementById('pill-webcam').classList.toggle('active', mode === 'webcam');
+
+    document.getElementById('image-panel').style.display    = mode === 'image'  ? '' : 'none';
+    document.getElementById('image-actions').style.display  = mode === 'image'  ? '' : 'none';
+    document.getElementById('webcam-panel').style.display   = mode === 'webcam' ? '' : 'none';
+    document.getElementById('fps-row').style.display        = mode === 'webcam' ? '' : 'none';
+
+    document.getElementById('chip-mode').textContent = mode === 'image' ? 'Image mode' : 'Webcam mode';
+    document.getElementById('live-badge').classList.toggle('show', false);
+
+    if (mode === 'image' && liveInterval) stopLiveLoop();
+    if (mode === 'image') document.getElementById('btn-download').disabled = !lastHtml;
+
+    if (mode === 'webcam') {
+      document.getElementById('webcam-panel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      document.getElementById('image-panel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  /* ================================================================
+     File input / drop zone
+  ================================================================ */
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+
+  fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) setFile(e.target.files[0]);
+  });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith('image/')) setFile(f);
+    else toast('Please drop an image file', 'error');
+  });
+
+  function setFile(file) {
+    selectedFile = file;
+    const url = URL.createObjectURL(file);
+    const img = document.getElementById('preview-img');
+    img.src = url;
+    document.getElementById('preview-wrap').style.display = '';
+    document.getElementById('preview-badge').textContent  = file.name;
+    document.getElementById('btn-render').disabled = false;
+    toast(`Loaded: ${file.name}`, 'success');
+  }
+
+  /* ================================================================
+     Image rendering
+  ================================================================ */
+  async function renderImage() {
+    if (!selectedFile) return;
+
+    const btn   = document.getElementById('btn-render');
+    const spin  = document.getElementById('spinner-render');
+    const label = document.getElementById('btn-render-label');
+    btn.disabled = true;
+    spin.style.display = 'block';
+    label.textContent = 'Processing…';
+    showOverlay(true);
+
+    const t0 = performance.now();
+
+    try {
+      const fd = new FormData();
+      fd.append('image', selectedFile);
+      fd.append('width',       document.getElementById('sl-width').value);
+      fd.append('height',      document.getElementById('sl-height').value);
+      fd.append('rank',        document.getElementById('sl-rank').value);
+      fd.append('edge_weight', document.getElementById('sl-ew').value);
+
+      const resp = await fetch('/api/process-image', { method: 'POST', body: fd });
+      const data = await resp.json();
+
+      if (data.error) throw new Error(data.error);
+
+      const ms = (performance.now() - t0).toFixed(0);
+      injectAscii(data.html, data.cols, data.rows, ms);
+      lastHtml = data.html; lastCols = data.cols; lastRows = data.rows;
+      document.getElementById('btn-download').disabled = false;
+      toast(`Rendered in ${ms} ms`, 'success');
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    } finally {
+      showOverlay(false);
+      btn.disabled = false;
+      spin.style.display = 'none';
+      label.textContent = '⚡ Render ASCII';
+    }
+  }
+
+  /* ================================================================
+     Webcam
+  ================================================================ */
+  async function startWebcam() {
+    // Check for secure context / mediaDevices support
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const reason = location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'
+        ? 'Camera requires HTTPS or localhost. Open http://127.0.0.1:5000 instead of a network IP.'
+        : 'Your browser does not support camera access.';
+      setCamState('error', reason);
+      toast(reason, 'error');
+      return;
+    }
+
+    setCamState('connecting', 'Requesting camera…');
+
+    try {
+      webcamStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: false
+      });
+
+      const video = document.getElementById('webcam-video');
+      video.srcObject = webcamStream;
+
+      // Must explicitly play() after assigning srcObject
+      try { await video.play(); } catch (_) { /* autoplay may have already started it */ }
+
+      // Hide the start overlay, show controls
+      document.getElementById('cam-overlay').classList.add('hidden');
+      document.getElementById('btn-stop-cam').style.display  = '';
+      document.getElementById('btn-capture').style.display   = '';
+      document.getElementById('live-badge').classList.add('show');
+
+      setCamState('live', 'Live');
+      toast('📷 Camera connected!', 'success');
+      startLiveLoop();
+
+    } catch (err) {
+      let msg = 'Camera error: ' + err.message;
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg = 'Camera permission denied. Click the camera icon in your browser address bar and allow access, then try again.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        msg = 'No camera found. Make sure a webcam is connected.';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        msg = 'Camera is in use by another app. Close other camera apps and try again.';
+      } else if (err.name === 'OverconstrainedError') {
+        msg = 'Camera does not support requested resolution. Trying fallback…';
+        // Retry with no constraints
+        try {
+          webcamStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          const video = document.getElementById('webcam-video');
+          video.srcObject = webcamStream;
+          try { await video.play(); } catch (_) {}
+          document.getElementById('cam-overlay').classList.add('hidden');
+          document.getElementById('btn-stop-cam').style.display = '';
+          document.getElementById('btn-capture').style.display  = '';
+          document.getElementById('live-badge').classList.add('show');
+          setCamState('live', 'Live (fallback mode)');
+          toast('📷 Camera connected (fallback mode)', 'success');
+          startLiveLoop();
+          return;
+        } catch (e2) { msg = 'Camera fallback also failed: ' + e2.message; }
+      }
+      setCamState('error', msg);
+      toast(msg, 'error');
+    }
+  }
+
+  function stopWebcam() {
+    if (webcamStream) {
+      webcamStream.getTracks().forEach(t => t.stop());
+      webcamStream = null;
+    }
+    stopLiveLoop();
+
+    const video = document.getElementById('webcam-video');
+    video.srcObject = null;
+
+    document.getElementById('cam-overlay').classList.remove('hidden');
+    document.getElementById('btn-stop-cam').style.display  = 'none';
+    document.getElementById('btn-capture').style.display   = 'none';
+    document.getElementById('live-badge').classList.remove('show');
+    setCamState('off', 'Camera off — click above to start');
+  }
+
+  function setCamState(state, customText) {
+    const dot  = document.getElementById('cam-dot');
+    const text = document.getElementById('cam-status-text');
+    const states = {
+      live:       'live',
+      error:      'error',
+      connecting: '',
+      off:        ''
+    };
+    dot.className = 'dot' + (states[state] ? ' ' + states[state] : '');
+    text.textContent = customText || (state === 'live' ? 'Live' : state === 'error' ? 'Error' : state === 'connecting' ? 'Connecting…' : 'Camera off');
+  }
+
+  /* Live loop */
+  let liveRunning = false;
+
+  function startLiveLoop() {
+    if (liveInterval) clearInterval(liveInterval);
+    scheduleNextFrame();
+  }
+
+  function scheduleNextFrame() {
+    if (!webcamStream) return;
+    const delay = 1000 / liveFps;
+    liveInterval = setTimeout(async () => {
+      if (!liveRunning) {
+        liveRunning = true;
+        await processWebcamFrame();
+        liveRunning = false;
+      }
+      scheduleNextFrame();
+    }, delay);
+  }
+
+  function stopLiveLoop() {
+    clearTimeout(liveInterval);
+    liveInterval = null;
+    liveRunning  = false;
+  }
+
+  function updateFps() {
+    liveFps = parseInt(document.getElementById('sl-fps').value);
+    if (webcamStream) { stopLiveLoop(); startLiveLoop(); }
+  }
+
+  async function processWebcamFrame() {
+    const video  = document.getElementById('webcam-video');
+    const canvas = document.getElementById('capture-canvas');
+    if (video.readyState < 2) return;
+
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+
+    const t0 = performance.now();
+    try {
+      const resp = await fetch('/api/webcam-frame', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          frame:       dataUrl,
+          width:       parseInt(document.getElementById('sl-width').value),
+          height:      parseInt(document.getElementById('sl-height').value),
+          rank:        parseInt(document.getElementById('sl-rank').value),
+          edge_weight: parseFloat(document.getElementById('sl-ew').value),
+        }),
+      });
+      const data = await resp.json();
+      if (!data.error) {
+        const ms = (performance.now() - t0).toFixed(0);
+        injectAscii(data.html, data.cols, data.rows, ms);
+        lastHtml = data.html; lastCols = data.cols; lastRows = data.rows;
+        document.getElementById('btn-download').disabled = false;
+      }
+    } catch (_) { /* silently skip bad frames */ }
+  }
+
+  /* ================================================================
+     Capture current webcam frame and trigger save
+  ================================================================ */
+  async function captureFrame() {
+    const video  = document.getElementById('webcam-video');
+    const canvas = document.getElementById('capture-canvas');
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+
+    // Save raw camera image
+    canvas.toBlob(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `asciify-capture-${Date.now()}.png`;
+      a.click();
+    }, 'image/png');
+
+    // Also save current ASCII render if available
+    if (lastHtml) downloadAscii();
+
+    toast('📸 Frame captured!', 'success');
+  }
+
+  /* ================================================================
+     Inject ASCII output into DOM
+  ================================================================ */
+  function injectAscii(html, cols, rows, ms) {
+    const container = document.getElementById('ascii-container');
+    container.innerHTML = html;
+    document.getElementById('empty-state').style.display = 'none';
+    container.classList.add('fade-in');
+    setTimeout(() => container.classList.remove('fade-in'), 400);
+
+    // Stats
+    document.getElementById('stats-bar').style.display = '';
+    document.getElementById('chip-dims').textContent   = `${cols} × ${rows}`;
+    document.getElementById('stat-chars').textContent  = (cols * rows).toLocaleString();
+    document.getElementById('stat-grid').textContent   = `${cols}c × ${rows}r`;
+    document.getElementById('stat-mode').textContent   = currentMode === 'webcam' ? 'Webcam' : 'Image';
+    document.getElementById('stat-time').textContent   = ms + ' ms';
+  }
+
+  /* ================================================================
+     Download
+  ================================================================ */
+  function downloadAscii() {
+    if (!lastHtml) return;
+
+    const full = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>ASCIIfy Output</title>
+<style>
+  body { background:#050709; margin:0; padding:16px; }
+  pre  { font-family:'JetBrains Mono',monospace; font-size:7.5px;
+          line-height:1.15; letter-spacing:.01em; white-space:pre; }
+</style></head><body>
+${lastHtml}
+</body></html>`;
+
+    const blob = new Blob([full], { type: 'text/html' });
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = `asciify-${Date.now()}.html`;
+    a.click();
+    toast('Downloaded!', 'success');
+  }
+
+  /* ================================================================
+     Processing overlay
+  ================================================================ */
+  function showOverlay(show) {
+    document.getElementById('processing-overlay').classList.toggle('show', show);
+  }
+
+  /* ================================================================
+     Toast notifications
+  ================================================================ */
+  function toast(msg, type = 'info') {
+    const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.innerHTML = `<span>${icons[type] || '•'}</span><span>${msg}</span>`;
+    document.getElementById('toast-container').appendChild(el);
+    setTimeout(() => {
+      el.style.animation = 'toastOut 0.3s ease forwards';
+      setTimeout(() => el.remove(), 300);
+    }, 3500);
+  }
+
+  /* ================================================================
+     Keyboard shortcuts
+  ================================================================ */
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      if (currentMode === 'image') renderImage();
+    }
+    if (e.key === 'F9') captureFrame();
+  });
+
+  /* Init */
+  switchMode('image');
+</script>
+</body>
+</html>
