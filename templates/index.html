@@ -1028,6 +1028,8 @@
 
     if (mode === 'webcam') {
       document.getElementById('webcam-panel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Automatically launch native app when switching to webcam mode
+      startWebcam();
     } else {
       document.getElementById('image-panel').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
